@@ -23,6 +23,7 @@ QUERY_COUNT = {
     "graph_commits": 0,
     "loc_query": 0,
 }
+STAT_LINE_LEN = 60
 
 
 def daily_readme(birthday):
@@ -190,7 +191,7 @@ def recursive_loc(
     )  # I cannot use simple_request(), because I want to save the file before raising Exception
     if request.status_code == 200:
         if (
-            request.json()["data"]["repository"]["defaultBranchRef"] != None
+            request.json()["data"]["repository"]["defaultBranchRef"] is not None
         ):  # Only count commits if repo isn't empty
             return loc_counter_one_repo(
                 owner,
@@ -461,13 +462,22 @@ def svg_overwrite(
     root = tree.getroot()
     justify_format(root, "age_data", age_data, 49)
     justify_format(root, "commit_data", commit_data, 22)
-    justify_format(root, "star_data", star_data, 14)
-    justify_format(root, "repo_data", repo_data, 6)
-    justify_format(root, "contrib_data", contrib_data)
+    repo_text, repo_dots_len = justify_format(root, "repo_data", repo_data, 8)
+    contrib_text, _ = justify_format(root, "contrib_data", contrib_data)
+    # Repos line fixed text ". Repos:" + " {Contributed: " + "} | Stars:" = 35 chars;
+    # target total line width matches the other stat lines (60 chars), with the
+    # star_data dots as the filler that absorbs whatever the rest of the line used.
+    used = 34 + repo_dots_len + len(repo_text) + len(contrib_text)
+    justify_format(root, "star_data", star_data, STAT_LINE_LEN - used)
     justify_format(root, "follower_data", follower_data, 10)
-    justify_format(root, "loc_data", loc_data[2], 9)
-    justify_format(root, "loc_add", loc_data[0])
-    justify_format(root, "loc_del", loc_data[1], 7)
+    loc_data_text, loc_data_dot_len = justify_format(root, "loc_data", loc_data[2], 9)
+    loc_add_text, loc_add_dot_len = justify_format(root, "loc_add", loc_data[0])
+
+    # Repos line fixed text ". Lines of Code on GitHub:" + " " + " ( " + "," + " ) " = 34 chars;
+    # target total line width matches the other stat lines (60 chars), with the
+    # loc_data dots as the filler that absorbs whatever the rest of the line used.
+    used = 34 + len(loc_data_text) + loc_data_dot_len + len(loc_add_text) + len(loc_add_text) + loc_add_dot_len
+    justify_format(root, "loc_del", loc_data[1], STAT_LINE_LEN - used)
     tree.write(filename, encoding="utf-8", xml_declaration=True)
 
 
@@ -476,7 +486,7 @@ def justify_format(root, element_id, new_text, length=0):
     Updates and formats the text of the element, and modifes the amount of dots in the previous element to justify the new text on the svg
     """
     if isinstance(new_text, int):
-        new_text = f"{'{:,}'.format(new_text)}"
+        new_text = human_format(new_text)
     new_text = str(new_text)
     find_and_replace(root, element_id, new_text)
     just_len = max(0, length - len(new_text))
@@ -486,6 +496,7 @@ def justify_format(root, element_id, new_text, length=0):
     else:
         dot_string = " " + ("." * just_len) + " "
     find_and_replace(root, f"{element_id}_dots", dot_string)
+    return new_text, len(dot_string)
 
 
 def find_and_replace(root, element_id, new_text):
@@ -582,6 +593,26 @@ def formatter(query_type, difference, funct_return=False, whitespace=0):
     return funct_return
 
 
+def human_format(num: int) -> str:
+    """
+    Convert integers into human readable format
+    """
+    original = num
+    num = float("{:.3g}".format(num))
+    magnitude = 0
+    while abs(num) >= 1000:
+        magnitude += 1
+        num /= 1000.0
+    # Suffixes: '', 'K', 'M', 'B', 'T', 'P'
+    if magnitude > 1:
+        return "{}{}".format(
+            "{:f}".format(num).rstrip("0").rstrip("."),
+            ("", "K", "M", "B", "T", "P")[magnitude],
+        )
+
+    return "{:,}".format(original)
+
+
 if __name__ == "__main__":
     """
     Andrew (ai-fn), 2022-2026
@@ -609,9 +640,10 @@ if __name__ == "__main__":
     follower_data, follower_time = perf_counter(follower_getter, USER_NAME)
 
     for index in range(len(total_loc) - 1):
-        total_loc[index] = "{:,}".format(
-            total_loc[index]
-        )  # format added, deleted, and total LOC
+        total_loc[index] = (
+            human_format(total_loc[index])
+        )
+        # format added, deleted, and total LOC
 
     svg_overwrite(
         "dark_mode.svg",
