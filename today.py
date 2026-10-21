@@ -1,11 +1,12 @@
 import datetime
-from dateutil import relativedelta
-import requests
-import os
-from lxml import etree
-import time
 import hashlib
+import os
+import time
+
+import requests
+from dateutil import relativedelta
 from dotenv import load_dotenv
+from lxml import etree
 
 load_dotenv()
 
@@ -24,6 +25,10 @@ QUERY_COUNT = {
     "loc_query": 0,
 }
 STAT_LINE_LEN = 60
+
+
+class HttpError(Exception):
+    pass
 
 
 def daily_readme(birthday):
@@ -66,7 +71,7 @@ def simple_request(func_name, query, variables):
     )
     if request.status_code == 200:
         return request
-    raise Exception(
+    raise HttpError(
         func_name, " has failed with a", request.status_code, request.text, QUERY_COUNT
     )
 
@@ -211,10 +216,10 @@ def recursive_loc(
         data, cache_comment
     )  # saves what is currently in the file before this program crashes
     if request.status_code == 403:
-        raise Exception(
+        raise HttpError(
             "Too many requests in a short amount of time!\nYou've hit the non-documented anti-abuse limit!"
         )
-    raise Exception(
+    raise HttpError(
         "recursive_loc() has failed with a",
         request.status_code,
         request.text,
@@ -410,13 +415,10 @@ def flush_cache(edges, filename, comment_size):
             data = f.readlines()[:comment_size]  # only save the comment
     with open(filename, "w") as f:
         f.writelines(data)
-        for node in edges:
-            f.write(
-                hashlib.sha256(
+        f.writelines(hashlib.sha256(
                     node["node"]["nameWithOwner"].encode("utf-8")
                 ).hexdigest()
-                + " 0 0 0 0\n"
-            )
+                + " 0 0 0 0\n" for node in edges)
 
 
 def force_close_file(data, cache_comment):
@@ -518,7 +520,7 @@ def commit_counter(comment_size):
     )  # Use the same filename as cache_builder
     with open(filename, "r") as f:
         data = f.readlines()
-    cache_comment = data[:comment_size]  # save the comment block
+    _ = data[:comment_size]  # save the comment block
     data = data[comment_size:]  # remove those lines
     for line in data:
         total_commits += int(line.split()[2])
@@ -584,12 +586,12 @@ def formatter(query_type, difference, funct_return=False, whitespace=0):
     Prints a formatted time differential
     Returns formatted result if whitespace is specified, otherwise returns raw result
     """
-    print("{:<23}".format("   " + query_type + ":"), sep="", end="")
-    print("{:>12}".format("%.4f" % difference + " s ")) if difference > 1 else print(
+    print("{:<23}".format("   " + query_type + ":"), end="")
+    print("{:>12}".format(f"{difference:.4f}" + " s ")) if difference > 1 else print(
         "{:>12}".format("%.4f" % (difference * 1000) + " ms")
     )
     if whitespace:
-        return f"{'{:,}'.format(funct_return): <{whitespace}}"
+        return f"{f'{funct_return:,}': <{whitespace}}"
     return funct_return
 
 
@@ -598,7 +600,7 @@ def human_format(num: int) -> str:
     Convert integers into human readable format
     """
     original = num
-    num = float("{:.3g}".format(num))
+    num = float(f"{num:.3g}")
     magnitude = 0
     while abs(num) >= 1000:
         magnitude += 1
@@ -606,11 +608,11 @@ def human_format(num: int) -> str:
     # Suffixes: '', 'K', 'M', 'B', 'T', 'P'
     if magnitude > 1:
         return "{}{}".format(
-            "{:f}".format(num).rstrip("0").rstrip("."),
+            f"{num:f}".rstrip("0").rstrip("."),
             ("", "K", "M", "B", "T", "P")[magnitude],
         )
 
-    return "{:,}".format(original)
+    return f"{original:,}"
 
 
 if __name__ == "__main__":
@@ -686,6 +688,6 @@ if __name__ == "__main__":
         sep="",
     )
 
-    print("Total GitHub GraphQL API calls:", "{:>3}".format(sum(QUERY_COUNT.values())))
+    print("Total GitHub GraphQL API calls:", f"{sum(QUERY_COUNT.values()):>3}")
     for funct_name, count in QUERY_COUNT.items():
-        print("{:<28}".format("   " + funct_name + ":"), "{:>6}".format(count))
+        print("{:<28}".format("   " + funct_name + ":"), f"{count:>6}")
